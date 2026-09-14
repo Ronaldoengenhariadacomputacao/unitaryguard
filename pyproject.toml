@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "unitaryguard"
+version = "0.1.0"
+description = "Property-based semantic-equivalence checking for quantum circuit transforms: sample circuits, verify the unitary is preserved, shrink failures to a minimal reproduction."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Proprietary -- All Rights Reserved (private, not yet released; revisit before any publication)" }
+authors = [{ name = "Ronaldo Rodrigues" }]
+dependencies = [
+    "qiskit>=1.0",
+]
+
+[project.scripts]
+unitaryguard = "unitaryguard.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["unitaryguard*"]
