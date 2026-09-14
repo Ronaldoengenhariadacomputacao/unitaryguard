@@ -66,6 +66,23 @@ def main(argv: list[str] | None = None) -> int:
         "split into contiguous index ranges across workers; default 1 = sequential)",
     )
 
+    calibrate = sub.add_parser(
+        "calibrate-workers",
+        help="probe this machine's own hardware to find a sensible --workers value, "
+        "instead of trusting a number measured on a different machine",
+    )
+    calibrate.add_argument("target", help="'<module>:<callable>'")
+    calibrate.add_argument("--qubits", type=int, default=1)
+    calibrate.add_argument("--gates", type=str, default="h,s,sdg,t,tdg,x")
+    calibrate.add_argument(
+        "--probe-length",
+        type=int,
+        default=4,
+        help="circuit length for the probe run -- pick something that takes a few "
+        "seconds sequentially (too small and the whole measurement is noise)",
+    )
+    calibrate.add_argument("--tol", type=float, default=1e-7)
+
     args = parser.parse_args(argv)
 
     if args.cmd == "check":
@@ -110,6 +127,42 @@ def main(argv: list[str] | None = None) -> int:
             print(f"\nsmallest failing circuit length: {report.smallest_failing_length}")
         print(f"circuits checked by length: {report.n_checked_by_length}")
         return 0 if report.ok else 1
+
+    if args.cmd == "calibrate-workers":
+        import os
+        import time
+
+        gate_set = [g.strip() for g in args.gates.split(",") if g.strip()]
+        max_cores = os.cpu_count() or 1
+        candidates = sorted(set(
+            w for w in (1, 2, 4, max(1, max_cores // 2), max_cores) if w <= max_cores
+        ))
+        print(f"this machine reports {max_cores} logical CPUs. Probing --workers in {candidates} "
+              f"at length {args.probe_length} against {args.target} ...\n")
+        results = []
+        for w in candidates:
+            t0 = time.time()
+            report = check_transform_exhaustive_parallel(
+                args.target,
+                n_qubits=args.qubits,
+                gate_set=gate_set,
+                max_length=args.probe_length,
+                tol=args.tol,
+                n_workers=w,
+                stop_at_first_length_with_failure=False,
+            )
+            dt = time.time() - t0
+            rate = report.n_checked / dt if dt > 0 else float("inf")
+            results.append((w, dt, rate))
+            print(f"  --workers {w:3d}:  {report.n_checked} circuits in {dt:6.2f}s  "
+                  f"({rate:8.1f} circuits/s)")
+
+        best = max(results, key=lambda r: r[2])
+        print(f"\nfastest on THIS run: --workers {best[0]} ({best[2]:.1f} circuits/s). "
+              "Re-run this a couple of times -- process scheduling noise can shift the "
+              "winner by 1-2 workers. If --workers 1 (sequential) wins, your probe length "
+              "is probably too small for parallelism to pay off; try a larger --probe-length.")
+        return 0
 
     return 2
 
