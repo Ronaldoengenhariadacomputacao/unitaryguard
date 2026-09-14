@@ -179,7 +179,7 @@ def circuit_to_gate_string(qc: QuantumCircuit) -> str:
         if letter is None:
             raise ValueError(f"toy_normal_form only supports h/s/t/x, got {name!r}")
         letters.append(letter)
-    return "".join(letters) if letters else "I"
+    return "".join(letters)
 
 
 def gate_string_to_circuit(n_qubits: int, s: str) -> QuantumCircuit:
@@ -205,3 +205,9 @@ def make_transform(buggy: bool):
         return gate_string_to_circuit(qc.num_qubits, out)
 
     return transform
+
+
+# bare, CLI-friendly callables (unitaryguard exhaustive/check need an
+# importable QuantumCircuit -> QuantumCircuit function, not a factory)
+buggy_transform = make_transform(buggy=True)
+fixed_transform = make_transform(buggy=False)

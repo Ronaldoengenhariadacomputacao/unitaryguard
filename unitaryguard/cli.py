@@ -6,6 +6,7 @@ import importlib
 import sys
 
 from .core import CheckConfig, check_transform
+from .exhaustive import check_transform_exhaustive
 
 
 def _load_callable(spec: str):
@@ -41,6 +42,22 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument("--tol", type=float, default=1e-7, help="allowed 1 - fidelity before flagging a failure")
     check.add_argument("--no-shrink", action="store_true", help="skip minimization of failing circuits")
 
+    exhaustive = sub.add_parser(
+        "exhaustive",
+        help="deterministically test EVERY circuit up to a max length (targets gate-order/"
+        "inversion transcription bugs, which are deterministic, not statistical)",
+    )
+    exhaustive.add_argument("target", help="'<module>:<callable>'")
+    exhaustive.add_argument("--qubits", type=int, default=1)
+    exhaustive.add_argument("--gates", type=str, default="h,s,t", help="discrete gates only (no rz/rx/ry)")
+    exhaustive.add_argument("--max-length", type=int, default=6)
+    exhaustive.add_argument("--tol", type=float, default=1e-7)
+    exhaustive.add_argument(
+        "--all-lengths",
+        action="store_true",
+        help="check every length up to --max-length even after the first failing length is found",
+    )
+
     args = parser.parse_args(argv)
 
     if args.cmd == "check":
@@ -56,6 +73,23 @@ def main(argv: list[str] | None = None) -> int:
         )
         report = check_transform(transform, cfg, shrink=not args.no_shrink)
         print(report.summary())
+        return 0 if report.ok else 1
+
+    if args.cmd == "exhaustive":
+        transform = _load_callable(args.target)
+        gate_set = [g.strip() for g in args.gates.split(",") if g.strip()]
+        report = check_transform_exhaustive(
+            transform,
+            n_qubits=args.qubits,
+            gate_set=gate_set,
+            max_length=args.max_length,
+            tol=args.tol,
+            stop_at_first_length_with_failure=not args.all_lengths,
+        )
+        print(report.summary())
+        if report.smallest_failing_length is not None:
+            print(f"\nsmallest failing circuit length: {report.smallest_failing_length}")
+        print(f"circuits checked by length: {report.n_checked_by_length}")
         return 0 if report.ok else 1
 
     return 2
