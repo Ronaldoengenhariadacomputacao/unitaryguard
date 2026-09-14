@@ -66,6 +66,30 @@ unitaryguard check mymodule:my_pass --qubits 3 --gates h,s,sdg,t,tdg,cx --sample
 
 `my_pass` must be an importable `QuantumCircuit -> QuantumCircuit` callable.
 
+### Exhaustive mode (deterministic, targets gate-order/inversion bugs)
+
+```bash
+unitaryguard exhaustive mymodule:my_pass --qubits 1 --gates h,s,sdg,t,tdg --max-length 6
+```
+
+Tests *every* discrete circuit up to `--max-length` gates (no continuous
+parameters), shortest first. A gate-order/conjugation-formula transcription
+bug (like both bugs this tool was built to generalize from) is
+deterministic, not statistical -- exhaustive search guarantees finding the
+smallest counterexample the vocabulary can express, with no separate
+shrinking step needed.
+
+Add `--workers N` to split each length's search across a process pool.
+**Measured, not assumed**: parallelism only pays off once the workload is
+large enough to amortize each worker's one-time Qiskit import cost
+(~1.4s/process on this machine). On a small search (1555 circuits, max
+length 4) against a real Qiskit synthesis pass, throughput peaked at 4
+workers (1.6x) and *degraded* past that. On a larger search (9331 circuits,
+max length 5), 8-12 workers gave a real 3.3x speedup, plateauing (not
+improving further) from 12 to 20 workers. Rule of thumb: don't parallelize a
+small `--max-length`; for a large one, start around 8-12 workers rather than
+assuming "more is better."
+
 ## Current scope (v0.1)
 
 - Transforms that preserve qubit count (most gate-level optimization/

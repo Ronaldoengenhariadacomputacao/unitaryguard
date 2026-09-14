@@ -7,6 +7,7 @@ import sys
 
 from .core import CheckConfig, check_transform
 from .exhaustive import check_transform_exhaustive
+from .parallel import check_transform_exhaustive_parallel
 
 
 def _load_callable(spec: str):
@@ -57,6 +58,13 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="check every length up to --max-length even after the first failing length is found",
     )
+    exhaustive.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="number of worker processes (>1 uses a process pool -- each length's search is "
+        "split into contiguous index ranges across workers; default 1 = sequential)",
+    )
 
     args = parser.parse_args(argv)
 
@@ -76,16 +84,27 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if report.ok else 1
 
     if args.cmd == "exhaustive":
-        transform = _load_callable(args.target)
         gate_set = [g.strip() for g in args.gates.split(",") if g.strip()]
-        report = check_transform_exhaustive(
-            transform,
-            n_qubits=args.qubits,
-            gate_set=gate_set,
-            max_length=args.max_length,
-            tol=args.tol,
-            stop_at_first_length_with_failure=not args.all_lengths,
-        )
+        if args.workers > 1:
+            report = check_transform_exhaustive_parallel(
+                args.target,
+                n_qubits=args.qubits,
+                gate_set=gate_set,
+                max_length=args.max_length,
+                tol=args.tol,
+                n_workers=args.workers,
+                stop_at_first_length_with_failure=not args.all_lengths,
+            )
+        else:
+            transform = _load_callable(args.target)
+            report = check_transform_exhaustive(
+                transform,
+                n_qubits=args.qubits,
+                gate_set=gate_set,
+                max_length=args.max_length,
+                tol=args.tol,
+                stop_at_first_length_with_failure=not args.all_lengths,
+            )
         print(report.summary())
         if report.smallest_failing_length is not None:
             print(f"\nsmallest failing circuit length: {report.smallest_failing_length}")
