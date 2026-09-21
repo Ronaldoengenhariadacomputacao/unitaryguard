@@ -32,7 +32,11 @@ so it doesn't have to be reinvented by hand each time. `tests/test_known_bugs.py
 reproduces both bug *shapes* as regression tests and proves the tool catches
 them and shrinks each to a small reproduction.
 
-See `DESIGN.md` for the full design rationale and current scope/limitations.
+See `DESIGN.md` for the full design rationale and current scope/limitations,
+and `CASE_STUDIES.md` for every method used to find a real bug so far, each
+with a runnable example (random sampling, exhaustive search, cross-validating
+the tool's own oracle, and writing a native-language binding to reach code a
+wrapper doesn't exercise).
 
 ## Why v0.2 has no Qiskit dependency
 

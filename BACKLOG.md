@@ -1,5 +1,25 @@
 # Backlog — future work, not started yet
 
+## rsgridsynth PR #49 — confirmed via real Rust binding (2026-09-21)
+
+**Status:** confirmed real at the Rust source level, not just via the toy
+Python port. See `CASE_STUDIES.md` ("Method 4") for the full writeup.
+
+`cargo test` against the PR's own new regression tests, applied to the
+unfixed `main` branch: 2/3 fail (`NormalForm::from_gates("SHTT")` gives
+`"SHXSSSW"`, max diff 1.31). A new sibling crate, `rsgridsynth_pybind`
+(`../rsgridsynth_pybind`, path-dependency on `rsgridsynth`, never modifies
+it), exposes `NormalForm::from_gates(...).to_gates()` to Python via PyO3
+specifically because Qiskit's own `gridsynth` plugin does NOT exercise
+this code path (verified: 400 circuits through the Qiskit wrapper, 0
+failures -- a negative result that does NOT clear the bug). Pointing
+`check_transform` at the real binding: 13/300 circuits fail, all at
+fidelity 0.0, minimal reproductions as short as 4 gates (`s,h,t,t`).
+
+**Next step:** none required from UnitaryGuard's side -- this is now solid
+supporting evidence for PR #49 itself (still open/unmerged upstream).
+Worth linking this case study from the PR if/when following up on review.
+
 ## Extend `matrices.py` gate vocabulary (v0.2 follow-up)
 
 **Status:** not started. Low effort per gate, mechanical.

@@ -146,6 +146,43 @@ See `tests/test_cross_validate_ket.py` (optional, requires
 `pip install ket-lang`, skipped gracefully if absent -- this dependency is
 deliberately NOT part of the core, see the intro to that test file).
 
+### A third caught bug -- found by the tool's own methodology (2026-09-21)
+
+Also cross-validated `matrices.py` against Qiskit's own `Operator()`
+(`tests/test_cross_validate_qiskit.py`, verified on Qiskit 2.5.1 AND
+2.5.2 independently -- purely as a third oracle alongside Ket, not a
+reintroduction of the v0.1 dependency; nothing under test here is a
+Qiskit pass).
+
+The first version of the adapter (naive: map unitaryguard qubit index q
+to Qiskit qubit q directly) failed immediately and reproducibly: 9/9
+isolated single-gate tests diverged, and the random battery hit fidelity
+as low as 0.718638 on a 9-gate circuit -- the SAME circuit, same exact
+fidelity value, on both Qiskit 2.5.1 and 2.5.2, confirming it's
+deterministic, not numerical noise. Root cause, traced to the exact bit:
+Qiskit is little-endian (qubit 0 = least significant bit of the
+statevector index); unitaryguard's own convention (matrices.py, agreeing
+with Ket's) is the opposite (qubit 0 = most significant bit). Minimal
+trace (2 qubits, `X` on qubit 0 alone): unitaryguard lands on state index
+2 (`10` binary); Qiskit's `qc.x(0)` lands on index 1 (`01` binary) --
+same physical intent, different bit position assigned to "qubit 0".
+
+Which convention is the "usual" one is not just a coincidence:
+[Qiskit's own official documentation](https://quantum.cloud.ibm.com/docs/en/guides/bit-ordering)
+states "you might expect the leftmost bit to be bit 0, whereas it
+usually represents bit n-1" in Qiskit -- i.e. Qiskit's own docs describe
+leftmost-bit-is-bit-0 (unitaryguard's and Ket's convention) as the
+*usual* expectation, and Qiskit as the one that deviates from it.
+
+This is exactly the bug SHAPE UnitaryGuard exists to catch -- silent,
+deterministic, systematic, invisible to gate-count/depth checks -- just
+found this time at an integration boundary (a test adapter) instead of
+inside a single optimization pass, and found by the tool's own
+cross-validation methodology rather than by a user pointing it at an
+external transform. Fixed by reversing qubit indices when building the
+Qiskit circuit (`_circuit_to_qiskit` in the test file, and documented
+prominently there as a warning for anyone copying the adapter pattern).
+
 ## Name
 
 `UnitaryGuard` (package: `unitaryguard`). Deliberately generic, since the
