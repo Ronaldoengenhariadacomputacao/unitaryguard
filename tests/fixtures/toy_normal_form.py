@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from qiskit import QuantumCircuit
+from unitaryguard import Circuit, Gate
 
 CONJ2_TABLE = [
     (0, 0), (0, 0), (1, 0), (3, 2), (2, 0), (2, 4), (3, 0), (1, 6),
@@ -167,47 +167,50 @@ class NormalForm:
         return out if out else "I"
 
 
-_GATE_METHOD = {"H": "h", "S": "s", "T": "t", "X": "x"}
+_GATE_LETTER = {"h": "H", "s": "S", "t": "T", "x": "X"}
 
 
-def circuit_to_gate_string(qc: QuantumCircuit) -> str:
+def circuit_to_gate_string(circ: Circuit) -> str:
     """H/S/T/X-only circuit -> gate-letter string, in temporal order."""
     letters = []
-    for instr in qc.data:
-        name = instr.operation.name
-        letter = {"h": "H", "s": "S", "t": "T", "x": "X"}.get(name)
+    for g in circ.gates:
+        letter = _GATE_LETTER.get(g.kind)
         if letter is None:
-            raise ValueError(f"toy_normal_form only supports h/s/t/x, got {name!r}")
+            raise ValueError(f"toy_normal_form only supports h/s/t/x, got {g.kind!r}")
         letters.append(letter)
     return "".join(letters)
 
 
-def gate_string_to_circuit(n_qubits: int, s: str) -> QuantumCircuit:
-    qc = QuantumCircuit(n_qubits)
+def gate_string_to_circuit(n_qubits: int, s: str) -> Circuit:
+    circ = Circuit(n_qubits)
     for ch in s:
-        if ch == "I":
+        if ch in ("I", "W"):
+            # W is a global-phase-only syllable (e^{i*pi/4} factor) -- not
+            # representable as a Gate in this minimal vocabulary and not
+            # observable by unitary EQUIVALENCE up to global phase (which is
+            # exactly what equivalent()/process fidelity checks), so it is
+            # correctly dropped here, same as the Qiskit-based version
+            # dropped it into `global_phase` (also invisible to
+            # process_fidelity up to phase).
             continue
-        if ch == "W":
-            qc.global_phase += 3.141592653589793 / 4
-            continue
-        getattr(qc, _GATE_METHOD[ch])(0)
-    return qc
+        circ.gates.append(Gate(kind={"H": "h", "S": "s", "T": "t", "X": "x"}[ch], qubits=(0,)))
+    return circ
 
 
 def make_transform(buggy: bool):
-    """Return a QuantumCircuit -> QuantumCircuit transform wrapping the toy
-    NormalForm compressor, for use with unitaryguard.check_transform."""
+    """Return a Circuit -> Circuit transform wrapping the toy NormalForm
+    compressor, for use with unitaryguard.check_transform."""
 
-    def transform(qc: QuantumCircuit) -> QuantumCircuit:
-        s = circuit_to_gate_string(qc)
+    def transform(circ: Circuit) -> Circuit:
+        s = circuit_to_gate_string(circ)
         nf = NormalForm.from_gates(s, buggy=buggy)
         out = nf.to_gates()
-        return gate_string_to_circuit(qc.num_qubits, out)
+        return gate_string_to_circuit(circ.n_qubits, out)
 
     return transform
 
 
 # bare, CLI-friendly callables (unitaryguard exhaustive/check need an
-# importable QuantumCircuit -> QuantumCircuit function, not a factory)
+# importable Circuit -> Circuit function, not a factory)
 buggy_transform = make_transform(buggy=True)
 fixed_transform = make_transform(buggy=False)

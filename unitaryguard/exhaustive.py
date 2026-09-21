@@ -18,26 +18,25 @@ import itertools
 from dataclasses import dataclass
 from typing import Iterator
 
-from qiskit import QuantumCircuit
+from .core import Circuit, Failure, Gate, Report, Transform, equivalent
+from .matrices import GATE_TABLE
 
-from .core import CheckConfig, Failure, Report, Transform, _GATE_TABLE, equivalent
 
-
-def enumerate_circuits(n_qubits: int, gate_set: list[str], length: int) -> Iterator[QuantumCircuit]:
+def enumerate_circuits(n_qubits: int, gate_set: list[str], length: int) -> Iterator[Circuit]:
     """Yield every circuit of exactly `length` gates over `gate_set`,
     respecting each gate's arity (qubit targets are ordered tuples of
     distinct qubits, e.g. cx(0,1) and cx(1,0) are both enumerated -- they
     are different gates).
 
-    Parametrized gates (rz/rx/ry) are NOT supported here (a continuous
+    Parametrized gates (rz/rx/ry/...) are NOT supported here (a continuous
     parameter can't be exhaustively enumerated) -- use core.check_transform
     for those. Raises ValueError if gate_set contains one.
     """
     for g in gate_set:
-        if g not in _GATE_TABLE:
+        if g not in GATE_TABLE:
             raise ValueError(f"unknown gate '{g}'")
-        arity, _method, needs_param = _GATE_TABLE[g]
-        if needs_param:
+        _arity, n_params = GATE_TABLE[g]
+        if n_params:
             raise ValueError(
                 f"'{g}' takes a continuous parameter -- exhaustive enumeration "
                 "only supports discrete gates (see core.check_transform for "
@@ -47,16 +46,12 @@ def enumerate_circuits(n_qubits: int, gate_set: list[str], length: int) -> Itera
     # each "slot" choice is (gate_name, ordered_qubit_tuple)
     choices = []
     for g in gate_set:
-        arity, _method, _ = _GATE_TABLE[g]
+        arity, _n_params = GATE_TABLE[g]
         for qubits in itertools.permutations(range(n_qubits), arity):
             choices.append((g, qubits))
 
     for combo in itertools.product(choices, repeat=length):
-        qc = QuantumCircuit(n_qubits)
-        for name, qubits in combo:
-            _arity, method, _ = _GATE_TABLE[name]
-            getattr(qc, method)(*qubits)
-        yield qc
+        yield Circuit(n_qubits, [Gate(name, qubits, ()) for name, qubits in combo])
 
 
 @dataclass
@@ -90,13 +85,13 @@ def check_transform_exhaustive(
     for length in range(0, max_length + 1):
         length_checked = 0
         length_failures: list[Failure] = []
-        for qc in enumerate_circuits(n_qubits, gate_set, length):
+        for circ in enumerate_circuits(n_qubits, gate_set, length):
             length_checked += 1
             n_checked += 1
-            out = transform(qc)
-            ok, fid = equivalent(qc, out, tol)
+            out = transform(circ)
+            ok, fid = equivalent(circ, out, tol)
             if not ok:
-                length_failures.append(Failure(original=qc, transformed=out, fidelity=fid))
+                length_failures.append(Failure(original=circ, transformed=out, fidelity=fid))
         n_checked_by_length[length] = length_checked
         if length_failures:
             # already minimal by construction: report as both original and

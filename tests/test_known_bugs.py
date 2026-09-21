@@ -8,17 +8,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from qiskit import QuantumCircuit
-
-from unitaryguard import CheckConfig, check_transform
+from unitaryguard import Circuit, Gate, CheckConfig, check_transform
 from tests.fixtures.toy_normal_form import make_transform
 
 
-def identity_transform(qc: QuantumCircuit) -> QuantumCircuit:
-    return qc.copy()
+def identity_transform(circ: Circuit) -> Circuit:
+    return circ.copy()
 
 
-def s_sdg_swap_bug(qc: QuantumCircuit) -> QuantumCircuit:
+def s_sdg_swap_bug(circ: Circuit) -> Circuit:
     """Stand-in for the real Qiskit OptimizeCliffordT bug shape: a transform
     that silently swaps S and Sdg wherever they occur. S and Sdg are not
     interchangeable (S != Sdg in general), so this breaks unitary
@@ -26,16 +24,14 @@ def s_sdg_swap_bug(qc: QuantumCircuit) -> QuantumCircuit:
     'two-token transcription swap' shape as the real bug, without depending
     on Qiskit's actual (already-fixed) Rust source.
     """
-    out = QuantumCircuit(qc.num_qubits)
-    for instr in qc.data:
-        name = instr.operation.name
-        qubits = instr.qubits
-        if name == "s":
-            out.sdg(qc.find_bit(qubits[0]).index)
-        elif name == "sdg":
-            out.s(qc.find_bit(qubits[0]).index)
+    out = Circuit(circ.n_qubits)
+    for g in circ.gates:
+        if g.kind == "s":
+            out.gates.append(Gate("sdg", g.qubits, g.params))
+        elif g.kind == "sdg":
+            out.gates.append(Gate("s", g.qubits, g.params))
         else:
-            out.append(instr.operation, qubits, instr.clbits)
+            out.gates.append(g)
     return out
 
 
@@ -51,7 +47,7 @@ def test_catches_s_sdg_swap_bug_shape() -> None:
     assert not report.ok, "expected the S/Sdg swap bug to be caught"
     # every failure should shrink to a tiny reproduction (a lone S or Sdg is
     # already enough: S != Sdg)
-    smallest = min(f.minimized.size() for f in report.failures)
+    smallest = min(len(f.minimized.gates) for f in report.failures)
     assert smallest <= 2, f"shrinking did not reach a small reproduction (got {smallest} gates)"
 
 
@@ -65,7 +61,7 @@ def test_catches_real_sht_merge_bug_shape() -> None:
     cfg = CheckConfig(n_qubits=1, gate_set=["h", "s", "t"], n_samples=300, min_gates=2, max_gates=8, seed=3)
     report = check_transform(buggy, cfg)
     assert not report.ok, "expected the SHT-merge bug to be caught"
-    smallest = min(f.minimized.size() for f in report.failures)
+    smallest = min(len(f.minimized.gates) for f in report.failures)
     assert smallest <= 4, f"shrinking did not reach the known-minimal case size (got {smallest} gates)"
 
 

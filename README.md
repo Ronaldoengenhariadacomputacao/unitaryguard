@@ -1,9 +1,11 @@
 # UnitaryGuard
 
 Property-based semantic-equivalence checking for quantum circuit transforms.
+**Framework-independent since v0.2** — no Qiskit or other SDK dependency
+anywhere (see "Why v0.2 has no Qiskit dependency" below).
 
-Points it at any `QuantumCircuit -> QuantumCircuit` function (a Qiskit pass,
-a `PassManager`, a compression step, anything), samples random circuits, and
+Points it at any `Circuit -> Circuit` function (a transform wrapping an
+external engine, a compression step, anything), samples random circuits, and
 checks one invariant that almost every transform is supposed to preserve but
 almost no test suite checks directly: **does the output implement the same
 unitary as the input?** When it finds a circuit where that's not true, it
@@ -32,6 +34,23 @@ them and shrinks each to a small reproduction.
 
 See `DESIGN.md` for the full design rationale and current scope/limitations.
 
+## Why v0.2 has no Qiskit dependency
+
+v0.1 checked equivalence via `qiskit.quantum_info.Operator`, which works
+fine when the transform under test is unrelated to Qiskit -- but breaks
+down exactly when the transform IS a real Qiskit pass: the code being
+tested and the code judging it become the same library, so a shared bug in
+Qiskit's own gate-matrix definitions can never be caught, structurally, no
+matter how many circuits you sample. v0.2 replaces the Qiskit-based
+`QuantumCircuit` representation with a tiny native `Circuit`/`Gate` pair and
+a gate-matrix table (`unitaryguard/matrices.py`) derived directly from each
+gate's standard mathematical definition, built with `numpy` alone. See
+`DESIGN.md` ("v0.2: dropped the Qiskit dependency entirely") for the full
+writeup. The real-world case that prompted this: validating AutoQ EngineBR,
+an external, from-scratch transpiler -- see that project's own docs for a
+worked adapter example (not included in this repo, since it's specific to
+that engine's own wire protocol).
+
 ## Install
 
 ```bash
@@ -41,11 +60,11 @@ pip install -e .
 ## Use as a library
 
 ```python
-from unitaryguard import CheckConfig, check_transform
+from unitaryguard import Circuit, Gate, CheckConfig, check_transform
 
-def my_pass(qc):
-    ...  # your QuantumCircuit -> QuantumCircuit transform
-    return transformed_qc
+def my_pass(circ: Circuit) -> Circuit:
+    ...  # your Circuit -> Circuit transform (e.g. call an external engine)
+    return transformed_circ
 
 cfg = CheckConfig(
     n_qubits=3,
@@ -58,13 +77,17 @@ print(report.summary())
 assert report.ok
 ```
 
+`Circuit(n_qubits, gates)` and `Gate(kind, qubits, params=())` are plain
+dataclasses -- `Gate("cx", (0, 1))`, `Gate("rz", (0,), (1.23,))`. See
+`unitaryguard/matrices.py::GATE_TABLE` for the full supported vocabulary.
+
 ## Use from the CLI
 
 ```bash
 unitaryguard check mymodule:my_pass --qubits 3 --gates h,s,sdg,t,tdg,cx --samples 500 --seed 42
 ```
 
-`my_pass` must be an importable `QuantumCircuit -> QuantumCircuit` callable.
+`my_pass` must be an importable `Circuit -> Circuit` callable.
 
 ### Exhaustive mode (deterministic, targets gate-order/inversion bugs)
 
@@ -99,14 +122,24 @@ same small-vs-large comparison on your own machine before picking a
 try `--workers <your core count>` and only go lower if you see the same
 kind of degradation documented above for a small search.
 
-## Current scope (v0.1)
+## Current scope (v0.2)
 
 - Transforms that preserve qubit count (most gate-level optimization/
   synthesis passes). Ancilla-widening transforms are not yet supported —
   see `DESIGN.md`.
 - Unitary-only transforms — no mid-circuit measurement / classical control
   yet.
+- Gate vocabulary: `h,x,y,z,s,sdg,t,tdg,sx` (0-param), `rz,ry,rx,p` (1-param),
+  `u` (3-param), `cx,cz,swap` (0-param, 2-qubit), `crz,crx,cry,cp,rzz,rxx,ryy`
+  (1-param, 2-qubit) — see `unitaryguard/matrices.py::GATE_TABLE`. No
+  multi-parameter 2-qubit gates yet (`cu`, `xx_plus_yy`, ...) and no generic
+  arbitrary-unitary sampling (`UnitaryGate`-equivalent) — extending either
+  is a matter of adding matrix functions + table entries to `matrices.py`.
+- No longer wraps real Qiskit `PassManager`/pass objects directly (that
+  capability was removed in v0.2 along with the Qiskit dependency — see
+  "Why v0.2 has no Qiskit dependency" above).
 
 ## Status
 
-Early prototype, private (not yet published to PyPI).
+Early prototype, private (not yet published to PyPI). v0.2 (2026-09-21):
+dropped Qiskit dependency entirely, see DESIGN.md.

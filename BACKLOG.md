@@ -1,5 +1,30 @@
 # Backlog — future work, not started yet
 
+## Extend `matrices.py` gate vocabulary (v0.2 follow-up)
+
+**Status:** not started. Low effort per gate, mechanical.
+
+v0.2 (2026-09-21, see DESIGN.md) replaced the Qiskit-based `Operator()`
+equivalence check with a native gate-matrix table. Current vocabulary
+(`unitaryguard/matrices.py::GATE_TABLE`) covers 0/1-parameter 1-qubit gates,
+the 3-parameter `u`, and 0/1-parameter 2-qubit gates. Not yet covered:
+
+- **Multi-parameter 2-qubit gates** (`cu` — 4 params, `xx_plus_yy`/
+  `xx_minus_yy` — 2 params each). `_random_gate`/`enumerate_circuits`
+  already generalize to N params via `GATE_TABLE[name] = (arity, n_params)`
+  — just needs the matrix function + table entry, no core-logic change.
+- **3+ qubit gates** (`ccx`, `cswap`, `ccz`). The sampler already handles
+  arbitrary arity generically (`rng.sample(range(n_qubits), arity)`) — same
+  as above, just matrix + table entry (arity=3, n_params=0).
+- **Generic arbitrary-unitary gates** (equivalent to Qiskit's
+  `UnitaryGate`). Genuinely new code path needed — these aren't a named
+  method with a fixed matrix, so `_random_gate` would need a separate
+  branch that samples a random unitary of the right dimension (e.g. via
+  the QR-decomposition-of-a-random-complex-matrix method, a well-known
+  numpy-only technique — no SDK needed) and `matrices.py`/`core.py` would
+  need to carry the sampled matrix alongside the gate (params can't hold an
+  arbitrary-size matrix in the current `tuple[float,...]` shape).
+
 ## Qiskit test-suite bug: broken `assertTrue` in `test_optimize_clifford_t.py`
 
 **Status:** found, confirmed, NOT yet fixed/submitted. Low priority (see

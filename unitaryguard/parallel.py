@@ -1,14 +1,13 @@
 """Parallel (multi-process) exhaustive checking.
 
 Why processes, not a GPU: the measured bottleneck in exhaustive.py is not
-numerical (Operator/process_fidelity on 1-2 qubit matrices is trivial) --
-it's Python/Qiskit orchestration overhead per circuit (building a
-QuantumCircuit, calling PassManager.run() or transpile()). That overhead is
-CPU-bound, single-threaded per call, and the workload is embarrassingly
-parallel (every circuit is checked completely independently) -- textbook fit
-for a process pool across CPU cores, not for GPU batch linear algebra (there
-is no batch to form; each check is one small, independent Python call into a
-library that isn't GPU-aware).
+numerical (building a couple-qubit unitary is trivial) -- it's Python
+orchestration overhead per circuit (building a Circuit, calling the
+transform). That overhead is CPU-bound, single-threaded per call, and the
+workload is embarrassingly parallel (every circuit is checked completely
+independently) -- textbook fit for a process pool across CPU cores, not for
+GPU batch linear algebra (there is no batch to form; each check is one
+small, independent Python call).
 
 Circuits are addressed by integer index (mixed-radix decomposition of the
 same enumeration order `itertools.product` uses) so work can be split into
@@ -23,17 +22,16 @@ import os
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 
-from qiskit import QuantumCircuit
-
-from .core import Failure, _GATE_TABLE, equivalent
+from .core import Circuit, Failure, Gate, equivalent
 from .exhaustive import ExhaustiveReport
+from .matrices import GATE_TABLE
 
 
 def _choices_for(n_qubits: int, gate_set: list[str]) -> list[tuple[str, tuple[int, ...]]]:
     choices = []
     for g in gate_set:
-        arity, _method, needs_param = _GATE_TABLE[g]
-        if needs_param:
+        arity, n_params = GATE_TABLE[g]
+        if n_params:
             raise ValueError(f"'{g}' takes a continuous parameter -- not supported here")
         for qubits in itertools.permutations(range(n_qubits), arity):
             choices.append((g, qubits))
@@ -50,12 +48,8 @@ def _nth_combo(choices: list, length: int, index: int) -> list:
     return [choices[d] for d in digits]
 
 
-def _circuit_from_combo(n_qubits: int, combo: list) -> QuantumCircuit:
-    qc = QuantumCircuit(n_qubits)
-    for name, qubits in combo:
-        _arity, method, _ = _GATE_TABLE[name]
-        getattr(qc, method)(*qubits)
-    return qc
+def _circuit_from_combo(n_qubits: int, combo: list) -> Circuit:
+    return Circuit(n_qubits, [Gate(name, qubits, ()) for name, qubits in combo])
 
 
 def _load_target(spec: str, factory_args: tuple, factory_kwargs: dict):
@@ -81,18 +75,17 @@ def _worker_check_range(
     tol: float,
 ) -> list[tuple]:
     """Runs in a worker process: check circuit indices [start, end) at this
-    length. Returns a list of (gate_string_repr, fidelity) for failures --
-    plain data only, so it survives the trip back across the process
-    boundary without needing QuantumCircuit to be pickled through the pool.
+    length. Returns a list of (index, fidelity) for failures -- plain data
+    only, so it survives the trip back across the process boundary.
     """
     transform = _load_target(target_spec, factory_args, factory_kwargs)
     choices = _choices_for(n_qubits, gate_set)
     out = []
     for idx in range(start, end):
         combo = _nth_combo(choices, length, idx)
-        qc = _circuit_from_combo(n_qubits, combo)
-        result = transform(qc)
-        ok, fid = equivalent(qc, result, tol)
+        circ = _circuit_from_combo(n_qubits, combo)
+        result = transform(circ)
+        ok, fid = equivalent(circ, result, tol)
         if not ok:
             out.append((idx, fid))
     return out
@@ -164,14 +157,13 @@ def check_transform_exhaustive_parallel(
             if failing_indices:
                 # recompute the actual transformed output for the (usually
                 # few) failures only, in this process -- avoids sending
-                # QuantumCircuit objects back through the pool for every one
-                # of the (many) passing circuits.
+                # results back through the pool for every passing circuit.
                 transform = _load_target(target_spec, factory_args, factory_kwargs)
                 for idx, fid in failing_indices:
                     combo = _nth_combo(choices, length, idx)
-                    qc = _circuit_from_combo(n_qubits, combo)
-                    out = transform(qc)
-                    length_failures.append(Failure(original=qc, transformed=out, fidelity=fid))
+                    circ = _circuit_from_combo(n_qubits, combo)
+                    out = transform(circ)
+                    length_failures.append(Failure(original=circ, transformed=out, fidelity=fid))
 
             n_checked += total
             n_checked_by_length[length] = total

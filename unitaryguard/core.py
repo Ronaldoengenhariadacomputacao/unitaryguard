@@ -1,36 +1,50 @@
 """Core of UnitaryGuard: sample circuits, check unitary equivalence across a
 transform, shrink failures to a minimal reproduction.
+
+v0.2: framework-independent -- no Qiskit (or any other SDK) dependency
+anywhere in this module. Circuits are a small native `Circuit`/`Gate`
+representation; unitary equivalence is checked via `matrices.py`'s gate
+table, derived from each gate's standard mathematical definition, built
+with numpy alone.
+
+Why this changed from v0.1 (which used `qiskit.QuantumCircuit` +
+`qiskit.quantum_info.Operator`): the real use case for this tool is
+validating an EXTERNAL engine (e.g. a from-scratch transpiler written in
+another language) -- depending on Qiskit for the oracle side is at best an
+unnecessary dependency and at worst, when the transform under test is
+ITSELF a real Qiskit pass (as some of this project's own earlier examples
+were), a genuine circularity: the code being tested and the code judging
+it are the same library, so a shared bug in Qiskit's own gate-matrix
+definitions can never be caught. See BACKLOG.md for the full writeup.
 """
 from __future__ import annotations
 
 import random
-import sys
 from dataclasses import dataclass, field
 from typing import Callable, Sequence
 
-from qiskit import QuantumCircuit
-from qiskit.quantum_info import Operator, process_fidelity
+import numpy as np
 
-Transform = Callable[[QuantumCircuit], QuantumCircuit]
+from .matrices import GATE_TABLE, apply_1q, apply_2q, gate_matrix
 
-# Gate name -> (arity, qiskit QuantumCircuit method name, needs_param)
-_GATE_TABLE = {
-    "h": (1, "h", False),
-    "x": (1, "x", False),
-    "y": (1, "y", False),
-    "z": (1, "z", False),
-    "s": (1, "s", False),
-    "sdg": (1, "sdg", False),
-    "t": (1, "t", False),
-    "tdg": (1, "tdg", False),
-    "sx": (1, "sx", False),
-    "cx": (2, "cx", False),
-    "cz": (2, "cz", False),
-    "swap": (2, "swap", False),
-    "rz": (1, "rz", True),
-    "rx": (1, "rx", True),
-    "ry": (1, "ry", True),
-}
+
+@dataclass(frozen=True)
+class Gate:
+    kind: str
+    qubits: tuple[int, ...]
+    params: tuple[float, ...] = ()
+
+
+@dataclass
+class Circuit:
+    n_qubits: int
+    gates: list[Gate] = field(default_factory=list)
+
+    def copy(self) -> "Circuit":
+        return Circuit(self.n_qubits, list(self.gates))
+
+
+Transform = Callable[[Circuit], Circuit]
 
 
 @dataclass
@@ -46,9 +60,9 @@ class CheckConfig:
 
     def __post_init__(self) -> None:
         for g in self.gate_set:
-            if g not in _GATE_TABLE:
+            if g not in GATE_TABLE:
                 raise ValueError(
-                    f"unknown gate '{g}' in gate_set -- known gates: {sorted(_GATE_TABLE)}"
+                    f"unknown gate '{g}' in gate_set -- known gates: {sorted(GATE_TABLE)}"
                 )
         if self.rng is None:
             self.rng = random.Random(self.seed)
@@ -56,12 +70,20 @@ class CheckConfig:
 
 @dataclass
 class Failure:
-    original: QuantumCircuit
-    transformed: QuantumCircuit
+    original: Circuit
+    transformed: Circuit
     fidelity: float
-    minimized: QuantumCircuit | None = None
-    minimized_transformed: QuantumCircuit | None = None
+    minimized: Circuit | None = None
+    minimized_transformed: Circuit | None = None
     minimized_fidelity: float | None = None
+
+
+def _gate_str(g: Gate) -> str:
+    qs = ",".join(str(q) for q in g.qubits)
+    if g.params:
+        ps = ",".join(f"{p:.4g}" for p in g.params)
+        return f"{g.kind}({ps})[{qs}]"
+    return f"{g.kind}[{qs}]"
 
 
 @dataclass
@@ -87,21 +109,9 @@ class Report:
             for i, f in enumerate(self.failures):
                 lines.append(f"\n--- failure #{i + 1} (fidelity={f.fidelity:.6f}) ---")
                 target = f.minimized if f.minimized is not None else f.original
-                gate_names = ", ".join(
-                    f"{instr.operation.name}({','.join(str(qc.find_bit(q).index) for q in instr.qubits)})"
-                    for instr, qc in ((i, target) for i in target.data)
-                )
-                lines.append(f"minimal reproduction ({target.size()} gates): {gate_names}")
-                # qc.draw() emits box-drawing Unicode that crashes on a
-                # cp1252 (default Windows) stdout -- degrade gracefully
-                # instead of raising UnicodeEncodeError from a print() call
-                # the caller doesn't control the encoding of.
-                drawing = str(target.draw(output="text"))
-                try:
-                    drawing.encode(sys.stdout.encoding or "utf-8")
-                    lines.append(drawing)
-                except (UnicodeEncodeError, LookupError):
-                    pass  # the gate list above already conveys the circuit
+                gate_names = ", ".join(_gate_str(g) for g in target.gates)
+                lines.append(f"minimal reproduction ({len(target.gates)} gates, "
+                              f"{target.n_qubits} qubits): {gate_names}")
                 if f.minimized_fidelity is not None:
                     lines.append(f"minimized fidelity = {f.minimized_fidelity:.6f}")
         else:
@@ -109,62 +119,72 @@ class Report:
         return "\n".join(lines)
 
 
-def _random_gate(cfg: CheckConfig, qc: QuantumCircuit) -> None:
+def _random_gate(cfg: CheckConfig, circ: Circuit) -> None:
     name = cfg.rng.choice(cfg.gate_set)
-    arity, method, needs_param = _GATE_TABLE[name]
-    qubits = cfg.rng.sample(range(cfg.n_qubits), arity)
-    fn = getattr(qc, method)
-    if needs_param:
-        theta = cfg.rng.uniform(0, 2 * 3.141592653589793)
-        fn(theta, *qubits)
-    else:
-        fn(*qubits)
+    arity, n_params = GATE_TABLE[name]
+    qubits = tuple(cfg.rng.sample(range(cfg.n_qubits), arity))
+    params = tuple(cfg.rng.uniform(0, 2 * 3.141592653589793) for _ in range(n_params))
+    circ.gates.append(Gate(name, qubits, params))
 
 
-def sample_circuit(cfg: CheckConfig) -> QuantumCircuit:
+def sample_circuit(cfg: CheckConfig) -> Circuit:
     """Build one random circuit within cfg's vocabulary/qubit count."""
     n_gates = cfg.rng.randint(cfg.min_gates, cfg.max_gates)
-    qc = QuantumCircuit(cfg.n_qubits)
+    circ = Circuit(cfg.n_qubits)
     for _ in range(n_gates):
-        _random_gate(cfg, qc)
-    return qc
+        _random_gate(cfg, circ)
+    return circ
 
 
-def equivalent(a: QuantumCircuit, b: QuantumCircuit, tol: float) -> tuple[bool, float]:
-    """Unitary equivalence up to global phase, via process_fidelity.
+def circuit_unitary(circ: Circuit) -> "np.ndarray":
+    """Build the full 2^n x 2^n unitary of a circuit by applying each gate's
+    matrix (matrices.py) directly to its qubit(s), via basis-index action
+    (no dense kron intermediate)."""
+    dim = 1 << circ.n_qubits
+    acc = np.eye(dim, dtype=complex)
+    for g in circ.gates:
+        m = gate_matrix(g.kind, g.params)
+        if len(g.qubits) == 1:
+            step = apply_1q(circ.n_qubits, g.qubits[0], m)
+        else:
+            step = apply_2q(circ.n_qubits, g.qubits[0], g.qubits[1], m)
+        acc = step @ acc
+    return acc
+
+
+def equivalent(a: Circuit, b: Circuit, tol: float) -> tuple[bool, float]:
+    """Unitary equivalence up to global phase, via process fidelity
+    F = |Tr(Ua^dagger . Ub)|^2 / d^2 (standard formula for two unitaries --
+    reduces to the same quantity Qiskit's process_fidelity computes for
+    this case, so existing `tol` thresholds carry over unchanged from the
+    old Qiskit-based implementation).
 
     Returns (is_equivalent, fidelity). Raises ValueError if the two circuits
-    act on a different number of qubits (out of scope for v0.1 -- see
-    DESIGN.md).
+    act on a different number of qubits (out of scope -- see DESIGN.md).
     """
-    if a.num_qubits != b.num_qubits:
+    if a.n_qubits != b.n_qubits:
         raise ValueError(
-            f"circuits have different qubit counts ({a.num_qubits} vs "
-            f"{b.num_qubits}) -- ancilla-widening transforms are out of "
+            f"circuits have different qubit counts ({a.n_qubits} vs "
+            f"{b.n_qubits}) -- ancilla-widening transforms are out of "
             "scope for this check (see DESIGN.md)."
         )
-    ua = Operator(a)
-    ub = Operator(b)
-    fid = process_fidelity(ua, target=ub)
+    ua = circuit_unitary(a)
+    ub = circuit_unitary(b)
+    d = ua.shape[0]
+    tr = np.trace(ua.conj().T @ ub)
+    fid = float(np.abs(tr) ** 2) / (d ** 2)
     return (1.0 - fid) <= tol, fid
 
 
-def _gate_list(qc: QuantumCircuit) -> list:
-    return list(qc.data)
-
-
-def _circuit_from_gate_list(n_qubits: int, gates: list) -> QuantumCircuit:
-    qc = QuantumCircuit(n_qubits)
-    for instr in gates:
-        qc.append(instr.operation, instr.qubits, instr.clbits)
-    return qc
+def _circuit_from_gates(n_qubits: int, gates: list[Gate]) -> Circuit:
+    return Circuit(n_qubits, list(gates))
 
 
 def shrink_failure(
-    original: QuantumCircuit,
+    original: Circuit,
     transform: Transform,
     tol: float,
-) -> tuple[QuantumCircuit, QuantumCircuit, float]:
+) -> tuple[Circuit, Circuit, float]:
     """Reduce a failing circuit to a locally-minimal one that still exhibits
     a unitary mismatch after `transform`.
 
@@ -173,20 +193,20 @@ def shrink_failure(
     reduced circuit still fails. Stops when no single gate can be dropped
     without the failure disappearing.
     """
-    gates = _gate_list(original)
+    gates = list(original.gates)
     changed = True
     while changed and len(gates) > 0:
         changed = False
         i = 0
         while i < len(gates):
-            candidate = gates[:i] + gates[i + 1 :]
+            candidate = gates[:i] + gates[i + 1:]
             if len(candidate) == 0:
                 i += 1
                 continue
-            cand_qc = _circuit_from_gate_list(original.num_qubits, candidate)
+            cand_circ = _circuit_from_gates(original.n_qubits, candidate)
             try:
-                cand_out = transform(cand_qc)
-                still_fails, _fid = equivalent(cand_qc, cand_out, tol)
+                cand_out = transform(cand_circ)
+                still_fails, _fid = equivalent(cand_circ, cand_out, tol)
             except Exception:
                 # a transform that errors out on the reduced circuit is not
                 # a valid shrink target -- keep the gate
@@ -199,7 +219,7 @@ def shrink_failure(
             else:
                 i += 1
 
-    minimized = _circuit_from_gate_list(original.num_qubits, gates)
+    minimized = _circuit_from_gates(original.n_qubits, gates)
     minimized_out = transform(minimized)
     _ok, fid = equivalent(minimized, minimized_out, tol)
     return minimized, minimized_out, fid
@@ -214,15 +234,15 @@ def check_transform(transform: Transform, cfg: CheckConfig, shrink: bool = True)
     """
     failures: list[Failure] = []
     for _ in range(cfg.n_samples):
-        qc = sample_circuit(cfg)
-        out = transform(qc)
-        ok, fid = equivalent(qc, out, cfg.tol)
+        circ = sample_circuit(cfg)
+        out = transform(circ)
+        ok, fid = equivalent(circ, out, cfg.tol)
         if ok:
             continue
-        failure = Failure(original=qc, transformed=out, fidelity=fid)
+        failure = Failure(original=circ, transformed=out, fidelity=fid)
         if shrink:
-            min_qc, min_out, min_fid = shrink_failure(qc, transform, cfg.tol)
-            failure.minimized = min_qc
+            min_circ, min_out, min_fid = shrink_failure(circ, transform, cfg.tol)
+            failure.minimized = min_circ
             failure.minimized_transformed = min_out
             failure.minimized_fidelity = min_fid
         failures.append(failure)

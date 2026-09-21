@@ -85,6 +85,50 @@ Explicitly out of scope for v0.1 (real limitations, not hidden):
   later step, once it has a track record of catching real things beyond
   this session's two bugs.
 
+## v0.2: dropped the Qiskit dependency entirely
+
+Motivating case (2026-09-21): pointing this tool at an EXTERNAL engine (a
+from-scratch transpiler written in a different language, "AutoQ EngineBR")
+raised a real question -- if the equivalence oracle (`Operator`/
+`process_fidelity`) is Qiskit's own, and the engine under test's output gets
+serialized back into a `QuantumCircuit` before being checked, then any
+project whose transform IS itself a real Qiskit pass (as `examples/
+real_qiskit_passes.py` and part of `demo_pass.py` did in v0.1) creates a
+strict circularity: the code being tested and the code judging it are the
+same library. A shared bug in Qiskit's own gate-matrix definitions can
+never be caught that way -- not "improbable", structurally impossible.
+
+This is a stronger version of the same concern the two founding bugs
+(`OptimizeCliffordT`, `rsgridsynth`) already demonstrate the value of
+avoiding: those were caught precisely because `Operator()`'s gate-matrix
+definitions are simpler, more scrutinized, and did NOT share the specific
+bug the transpiler passes had. But relying on that being true in general,
+forever, for every future transform someone points this tool at (including
+Qiskit's own passes) is exactly the kind of assumption a *validation* tool
+should not need to make about its own oracle.
+
+**Fix**: `core.py` now represents circuits with a tiny native `Circuit`/
+`Gate` dataclass pair (not `QuantumCircuit`), and `matrices.py` implements
+every gate's matrix directly from its standard mathematical definition
+(same convention as the wider literature, e.g. Nielsen & Chuang -- not
+derived from Qiskit's source), built with numpy alone. `equivalent()`
+computes process fidelity `|Tr(Ua^dagger . Ub)|^2 / d^2` directly from
+these matrices -- the same quantity `process_fidelity` computed for this
+case, so `tol` thresholds are unchanged from v0.1.
+
+**Consequence, deliberately accepted**: this tool can no longer wrap a real
+Qiskit `PassManager`/pass directly as a bare `Circuit -> Circuit` callable
+(that would need a `QuantumCircuit <-> Circuit` conversion layer, which is
+exactly the reintroduced coupling being removed). `examples/
+real_qiskit_passes.py` and `examples/ross_selinger_check.py` were removed
+for this reason. Testing a real Qiskit pass again in the future would need
+an explicit adapter written by the caller, kept outside this package, not
+a built-in capability -- consistent with the actual real-world use case
+this tool now serves (validating external engines), not the original one
+(validating Qiskit-internal transforms with Qiskit's own oracle).
+
+`numpy` replaces `qiskit>=1.0` as the sole runtime dependency.
+
 ## Name
 
 `UnitaryGuard` (package: `unitaryguard`). Deliberately generic, since the
