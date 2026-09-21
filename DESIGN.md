@@ -129,6 +129,23 @@ this tool now serves (validating external engines), not the original one
 
 `numpy` replaces `qiskit>=1.0` as the sole runtime dependency.
 
+### Independent cross-validation of `matrices.py` (2026-09-21)
+
+Removing Qiskit's `Operator()` means `matrices.py`'s hand-derived gate
+table is now the tool's own oracle -- if it had a subtle sign/convention
+error, a self-consistency check inside unitaryguard alone could not catch
+it (the same circularity concern this whole redesign exists to avoid,
+just pointed at unitaryguard itself instead of at Qiskit). Cross-validated
+against [Ket](https://quantumket.org) (`ket-lang` on PyPI, `libket` --
+a Rust-based simulator runtime, unrelated to Qiskit and unrelated to this
+project's own code): sampled 1520 random circuits total (3/5/6 qubits, two
+seeds, the full 1/2-qubit gate vocabulary `matrices.py` supports), ran each
+through both `unitaryguard.circuit_unitary()` and Ket's real simulator
+(`ket.dump()`), compared the resulting statevectors -- 0 divergences.
+See `tests/test_cross_validate_ket.py` (optional, requires
+`pip install ket-lang`, skipped gracefully if absent -- this dependency is
+deliberately NOT part of the core, see the intro to that test file).
+
 ## Name
 
 `UnitaryGuard` (package: `unitaryguard`). Deliberately generic, since the
