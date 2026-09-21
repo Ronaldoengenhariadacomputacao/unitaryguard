@@ -170,6 +170,42 @@ See `rsgridsynth_pybind/README.md` (sibling directory,
 `C:\Users\CentralS\Documents\projeto transpileZig\rsgridsynth_pybind`) for
 build instructions.
 
+## Method 5: cross-validating a target against ITSELF (different backends, same tool)
+
+No external oracle needed -- run the same circuit through the same tool's
+different internal implementations and compare. Cheapest method to try
+(no new dependency, no binding), and tests a surface nobody normally
+checks (agreement between a simulator's own backend options).
+
+**Example: Ket's `dense` vs `sparse` vs `dense gpu` simulators (2026-09-21)**
+
+```python
+import ket
+def run_ket(n_qubits, gates, simulator):
+    p = ket.Process(simulator=simulator)
+    q = p.alloc(n_qubits)
+    # ... apply gates ...
+    return ket.dump(q)  # compare across simulator= values for the SAME circuit
+```
+
+**First result (misleading at first glance):** with a tight tolerance
+(`1 - 1e-6`, the same used for the Ket/Qiskit oracle cross-validation),
+23/900 circuit x backend-pair comparisons "failed" -- but EVERY one had
+infidelity within `1e-6` of the threshold (max `1.26e-6`), never higher.
+**Investigated before concluding anything is broken:** Ket's `dump()`
+amplitudes match `float32` rounding exactly (e.g. `1/sqrt(2)` comes back
+as `0.7071067690849304`, matching float32's ~7-digit precision, not
+float64's ~15-16) -- so ~`1e-6`-level cross-backend noise is the expected
+floor for that precision, not a correctness bug. Re-running with
+`tol=1e-4` (calibrated for float32): **0/1800 divergences.**
+
+**Why this is worth recording as its own entry, not just a footnote:**
+this is the one case in this document where the naive first result would
+have been a **false positive** -- claiming a bug that wasn't there. The
+discipline that avoided it was the same one used throughout this document:
+verify the actual numeric magnitude of a "failure" before reporting it,
+not just whether it crossed an arbitrarily-chosen threshold.
+
 ## Summary table
 
 | Method | Target | Result |
@@ -179,3 +215,4 @@ build instructions.
 | 3a. Cross-validate oracle | Ket (independent simulator) | 0/1520 divergences (matrices.py confirmed) |
 | 3b. Cross-validate oracle | Qiskit `Operator()` | Found a real integration bug (endianness) in the TEST adapter itself |
 | 4. Native-language binding | rsgridsynth's real `NormalForm` (PR #49) | 13/300 failed, confirms PR #49 automatically |
+| 5. Self cross-validation (different backends) | Ket `dense`/`sparse`/`dense gpu` | 0/1800 real divergences (initial "failures" were float32 noise, not a bug -- see writeup) |
