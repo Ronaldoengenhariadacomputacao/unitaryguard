@@ -47,21 +47,35 @@ from unitaryguard.core import Circuit, Gate
 try:
     import qiskit
     from qiskit import QuantumCircuit
+    from qiskit.circuit.library import XXPlusYYGate, XXMinusYYGate
     from qiskit.quantum_info import Operator
     _HAS_QISKIT = True
 except ImportError:
     _HAS_QISKIT = False
 
-GATE_SET = ["h", "x", "y", "z", "s", "sdg", "t", "tdg", "sx",
-            "rz", "ry", "rx", "p",
-            "cx", "cz", "swap", "crz", "crx", "cry", "cp", "rzz", "rxx", "ryy"]
+GATE_SET = ["h", "x", "y", "z", "s", "sdg", "t", "tdg", "sx", "sxdg",
+            "rz", "ry", "rx", "p", "u", "r",
+            "cx", "cz", "swap", "crz", "crx", "cry", "cp", "rzz", "rxx", "ryy",
+            "iswap", "dcx", "ecr", "cy", "ch", "csx", "cu", "rzx",
+            "xx_plus_yy", "xx_minus_yy"]
 
 _METHOD_1Q = {"h": "h", "x": "x", "y": "y", "z": "z", "s": "s", "sdg": "sdg",
-              "t": "t", "tdg": "tdg", "sx": "sx"}
+              "t": "t", "tdg": "tdg", "sx": "sx", "sxdg": "sxdg"}
 _METHOD_1Q_PARAM = {"rz": "rz", "ry": "ry", "rx": "rx", "p": "p"}
-_METHOD_2Q_FIXED = {"cx": "cx", "cz": "cz", "swap": "swap"}
+_METHOD_1Q_MULTI = {"u": "u", "r": "r"}  # u: 3 params, r: 2 params
+_METHOD_2Q_FIXED = {"cx": "cx", "cz": "cz", "swap": "swap", "iswap": "iswap",
+                     "cy": "cy", "ch": "ch", "csx": "csx"}
 _METHOD_2Q_PARAM = {"crz": "crz", "crx": "crx", "cry": "cry", "cp": "cp",
                      "rzz": "rzz", "rxx": "rxx", "ryy": "ryy"}
+_METHOD_2Q_MULTI = {"cu": "cu"}
+_GATE_2Q_CLASS = {"xx_plus_yy": XXPlusYYGate, "xx_minus_yy": XXMinusYYGate}
+# gates whose 4x4 matrix is NOT symmetric under swapping q0<->q1 (dcx, ecr:
+# asymmetric by construction; rzx: z vs x targets differ) -- for these,
+# reversing only the qubit INDEX (the usual little-endian fix) is not
+# enough, the arg order itself must also swap. Verified by direct matrix
+# comparison against Operator() (see isolate_bug7.py in session scratch).
+_METHOD_2Q_FIXED_SWAPPED = {"dcx": "dcx", "ecr": "ecr"}
+_METHOD_2Q_PARAM_SWAPPED = {"rzx": "rzx"}
 
 
 def _circuit_to_qiskit(circ: Circuit) -> "QuantumCircuit":
@@ -77,10 +91,26 @@ def _circuit_to_qiskit(circ: Circuit) -> "QuantumCircuit":
             getattr(qc, _METHOD_1Q[name])(rev(qubits[0]))
         elif name in _METHOD_1Q_PARAM:
             getattr(qc, _METHOD_1Q_PARAM[name])(params[0], rev(qubits[0]))
+        elif name in _METHOD_1Q_MULTI:
+            getattr(qc, _METHOD_1Q_MULTI[name])(*params, rev(qubits[0]))
         elif name in _METHOD_2Q_FIXED:
             getattr(qc, _METHOD_2Q_FIXED[name])(rev(qubits[0]), rev(qubits[1]))
+        elif name in _METHOD_2Q_FIXED_SWAPPED:
+            getattr(qc, _METHOD_2Q_FIXED_SWAPPED[name])(rev(qubits[1]), rev(qubits[0]))
         elif name in _METHOD_2Q_PARAM:
             getattr(qc, _METHOD_2Q_PARAM[name])(params[0], rev(qubits[0]), rev(qubits[1]))
+        elif name in _METHOD_2Q_PARAM_SWAPPED:
+            getattr(qc, _METHOD_2Q_PARAM_SWAPPED[name])(params[0], rev(qubits[1]), rev(qubits[0]))
+        elif name in _METHOD_2Q_MULTI:
+            getattr(qc, _METHOD_2Q_MULTI[name])(*params, rev(qubits[0]), rev(qubits[1]))
+        elif name in _GATE_2Q_CLASS:
+            # asymmetric (non-controlled) 2Q gate: reversing only the qubit
+            # INDEX (like every other gate above) is not enough here, because
+            # the gate's own 4x4 matrix is defined in [q0, q1] local order and
+            # that local order is itself part of what "little-endian" flips.
+            # Reverse index AND swap arg order (verified below by direct
+            # matrix comparison against Qiskit's Operator()).
+            qc.append(_GATE_2Q_CLASS[name](*params), [rev(qubits[1]), rev(qubits[0])])
         else:
             raise ValueError(f"gate sem mapeamento pro Qiskit: {name}")
     return qc

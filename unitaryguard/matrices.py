@@ -86,10 +86,23 @@ def _u(theta, phi, lam):
     ], dtype=complex)
 
 
+def _sxdg():
+    return 0.5 * np.array([[1 - 1j, 1 + 1j], [1 + 1j, 1 - 1j]], dtype=complex)
+
+
+def _r(theta, phi):
+    # verified against quantum.cloud.ibm.com/docs/api/qiskit/qiskit.circuit.library.RGate
+    c, s = np.cos(theta / 2), np.sin(theta / 2)
+    return np.array([
+        [c, -1j * np.exp(-1j * phi) * s],
+        [-1j * np.exp(1j * phi) * s, c],
+    ], dtype=complex)
+
+
 _1Q_FIXED = {"h": _h, "x": _x, "y": _y, "z": _z, "s": _s, "sdg": _sdg,
-             "t": _t, "tdg": _tdg, "sx": _sx}
+             "t": _t, "tdg": _tdg, "sx": _sx, "sxdg": _sxdg}
 _1Q_PARAM = {"rz": _rz, "ry": _ry, "rx": _rx, "p": _p}  # 1 parameter (theta)
-_1Q_MULTI = {"u": _u}  # 3 parameters (theta, phi, lam)
+_1Q_MULTI = {"u": (_u, 3), "r": (_r, 2)}  # (function, n_params)
 
 # ---------------------------------------------------------------------
 # 2-qubit gates -- basis |ab> = |00>,|01>,|10>,|11>, a=qubits[0] (more
@@ -128,13 +141,69 @@ def _ryy(theta):
     return m - 1j * s * anti
 
 
-_2Q_FIXED = {"cx": lambda: _CX, "cz": lambda: _CZ, "swap": lambda: _SWAP}
-_2Q_PARAM = {
+_ISWAP = np.array([[1, 0, 0, 0], [0, 0, 1j, 0], [0, 1j, 0, 0], [0, 0, 0, 1]], dtype=complex)
+_DCX = np.array([[1, 0, 0, 0], [0, 0, 0, 1], [0, 1, 0, 0], [0, 0, 1, 0]], dtype=complex)
+_ECR = (1 / np.sqrt(2)) * np.array([
+    [0, 1, 0, 1j], [1, 0, -1j, 0], [0, 1j, 0, 1], [-1j, 0, 1, 0],
+], dtype=complex)
+
+
+def _cu(theta, phi, lam, gamma):
+    # verified: controlled-U with an extra phase e^{i*gamma} applied only
+    # on the |1>-control branch (quantum.cloud.ibm.com CUGate).
+    return _controlled_u(np.exp(1j * gamma) * _u(theta, phi, lam))
+
+
+def _rzx(theta):
+    # verified against quantum.cloud.ibm.com/docs/api/qiskit/qiskit.circuit.library.RZXGate
+    c, s = np.cos(theta / 2), np.sin(theta / 2)
+    return np.array([
+        [c, 0, -1j * s, 0],
+        [0, c, 0, 1j * s],
+        [-1j * s, 0, c, 0],
+        [0, 1j * s, 0, c],
+    ], dtype=complex)
+
+
+def _xx_plus_yy(theta, beta):
+    # verified against quantum.cloud.ibm.com/docs/api/qiskit/qiskit.circuit.library.XXPlusYYGate
+    c, s = np.cos(theta / 2), np.sin(theta / 2)
+    return np.array([
+        [1, 0, 0, 0],
+        [0, c, -1j * s * np.exp(-1j * beta), 0],
+        [0, -1j * s * np.exp(1j * beta), c, 0],
+        [0, 0, 0, 1],
+    ], dtype=complex)
+
+
+def _xx_minus_yy(theta, beta):
+    # verified against quantum.cloud.ibm.com/docs/api/qiskit/qiskit.circuit.library.XXMinusYYGate
+    c, s = np.cos(theta / 2), np.sin(theta / 2)
+    return np.array([
+        [c, 0, 0, -1j * s * np.exp(-1j * beta)],
+        [0, 1, 0, 0],
+        [0, 0, 1, 0],
+        [-1j * s * np.exp(1j * beta), 0, 0, c],
+    ], dtype=complex)
+
+
+_2Q_FIXED = {
+    "cx": lambda: _CX, "cz": lambda: _CZ, "swap": lambda: _SWAP,
+    "iswap": lambda: _ISWAP, "dcx": lambda: _DCX, "ecr": lambda: _ECR,
+    "cy": lambda: _controlled_u(_y()), "ch": lambda: _controlled_u(_h()),
+    "csx": lambda: _controlled_u(_sx()),
+}
+_2Q_PARAM = {  # 1 parameter (theta)
     "crz": lambda th: _controlled_u(_rz(th)),
     "crx": lambda th: _controlled_u(_rx(th)),
     "cry": lambda th: _controlled_u(_ry(th)),
     "cp": lambda th: _controlled_u(np.array([[1, 0], [0, np.exp(1j * th)]], dtype=complex)),
-    "rzz": _rzz, "rxx": _rxx, "ryy": _ryy,
+    "rzz": _rzz, "rxx": _rxx, "ryy": _ryy, "rzx": _rzx,
+}
+_2Q_MULTI = {
+    "cu": (_cu, 4),
+    "xx_plus_yy": (_xx_plus_yy, 2),
+    "xx_minus_yy": (_xx_minus_yy, 2),
 }
 
 # (arity, n_params) -- the single source of truth for what a gate name
@@ -143,9 +212,10 @@ _2Q_PARAM = {
 GATE_TABLE = {
     **{k: (1, 0) for k in _1Q_FIXED},
     **{k: (1, 1) for k in _1Q_PARAM},
-    **{k: (1, 3) for k in _1Q_MULTI},
+    **{k: (1, n) for k, (_fn, n) in _1Q_MULTI.items()},
     **{k: (2, 0) for k in _2Q_FIXED},
     **{k: (2, 1) for k in _2Q_PARAM},
+    **{k: (2, n) for k, (_fn, n) in _2Q_MULTI.items()},
 }
 
 
@@ -155,11 +225,13 @@ def gate_matrix(kind: str, params: tuple[float, ...]):
     if kind in _1Q_PARAM:
         return _1Q_PARAM[kind](*params)
     if kind in _1Q_MULTI:
-        return _1Q_MULTI[kind](*params)
+        return _1Q_MULTI[kind][0](*params)
     if kind in _2Q_FIXED:
         return _2Q_FIXED[kind]()
     if kind in _2Q_PARAM:
         return _2Q_PARAM[kind](*params)
+    if kind in _2Q_MULTI:
+        return _2Q_MULTI[kind][0](*params)
     raise ValueError(f"unknown gate '{kind}' -- known gates: {sorted(GATE_TABLE)}")
 
 

@@ -48,7 +48,8 @@ if _HAS_KET:
 
 GATE_SET = ["h", "x", "y", "z", "s", "sdg", "t", "tdg", "sx",
             "rz", "ry", "rx", "p",
-            "cx", "cz", "swap", "crz", "crx", "cry", "cp", "rzz", "rxx", "ryy"]
+            "cx", "cz", "swap", "crz", "crx", "cry", "cp", "rzz", "rxx", "ryy",
+            "cy", "ch", "csx"]
 
 
 def _run_ket(n_qubits: int, circ: Circuit) -> "np.ndarray":
@@ -70,6 +71,12 @@ def _run_ket(n_qubits: int, circ: Circuit) -> "np.ndarray":
             _GATE_2Q_PARAM[name](params[0], q[qubits[0]], q[qubits[1]])
         elif name in ("crz", "crx", "cry", "cp"):
             ket.ctrl(q[qubits[0]], _GATE_2Q_PARAM[name](params[0]))(q[qubits[1]])
+        elif name == "cy":
+            ket.ctrl(q[qubits[0]], ket.Y)(q[qubits[1]])
+        elif name == "ch":
+            ket.ctrl(q[qubits[0]], ket.H)(q[qubits[1]])
+        elif name == "csx":
+            ket.ctrl(q[qubits[0]], ket.SX)(q[qubits[1]])
         else:
             raise ValueError(f"gate sem mapeamento pro Ket: {name}")
     d = ket.dump(q)
