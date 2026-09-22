@@ -97,6 +97,26 @@ unitary comparison) -- found this time at an integration boundary, by the
 tool's own cross-validation methodology, not by a user pointing it at an
 external transform.
 
+**Second occurrence, same shape (2026-09-22):** expanding the gate
+vocabulary (adding `iswap`, `dcx`, `ecr`, `cu`, `rzx`, `xx_plus_yy`,
+`xx_minus_yy`) re-ran into the identical bug class, one level deeper.
+Qiskit's whole-circuit little-endian convention was already handled (index
+reversal), but for 2-qubit gates whose 4x4 matrix is *not* symmetric under
+swapping q0<->q1 (`dcx`, `ecr`, `rzx`, `xx_plus_yy`, `xx_minus_yy`),
+reversing only the qubit *index* is not enough -- the argument *order*
+passed to Qiskit must also swap, because the gate's local matrix
+definition is itself part of what "little-endian" flips. Found the same
+way as before: 500-circuit cross-validation caught a real disagreement
+(fidelity 0.712 on a random circuit), confirmed at the raw-4x4-matrix
+level (`unitaryguard.matrices._xx_plus_yy` matched `XXPlusYYGate.to_matrix()`
+exactly -- ruling out `matrices.py`), then bisected gate-by-gate and
+qubit-order by qubit-order until the exact swap rule was identified.
+Symmetric gates (`cz`, `swap`, `iswap`, `rzz`/`rxx`/`ryy`) and controlled
+gates (`cx`, `cy`, `ch`, `csx`, `cu`, `crz`/`crx`/`cry`/`cp`) never needed
+this extra swap -- only the non-controlled, asymmetric-under-exchange
+gates did. Fixed in the test adapter only (`tests/test_cross_validate_qiskit.py`),
+`matrices.py` itself was correct throughout.
+
 ## Method 4: writing a minimal native-language binding to reach code the wrapper doesn't exercise
 
 The most important methodological lesson from this session: **a negative
