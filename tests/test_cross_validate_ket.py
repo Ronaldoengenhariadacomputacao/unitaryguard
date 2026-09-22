@@ -49,7 +49,8 @@ if _HAS_KET:
 GATE_SET = ["h", "x", "y", "z", "s", "sdg", "t", "tdg", "sx",
             "rz", "ry", "rx", "p",
             "cx", "cz", "swap", "crz", "crx", "cry", "cp", "rzz", "rxx", "ryy",
-            "cy", "ch", "csx"]
+            "cy", "ch", "csx",
+            "ccx", "cswap", "ccz"]  # rccx skipped -- no simple ctrl() decomposition in Ket
 
 
 def _run_ket(n_qubits: int, circ: Circuit) -> "np.ndarray":
@@ -77,6 +78,12 @@ def _run_ket(n_qubits: int, circ: Circuit) -> "np.ndarray":
             ket.ctrl(q[qubits[0]], ket.H)(q[qubits[1]])
         elif name == "csx":
             ket.ctrl(q[qubits[0]], ket.SX)(q[qubits[1]])
+        elif name == "ccx":
+            ket.ctrl([q[qubits[0]], q[qubits[1]]], ket.X)(q[qubits[2]])
+        elif name == "cswap":
+            ket.ctrl(q[qubits[0]], ket.SWAP)(q[qubits[1]], q[qubits[2]])
+        elif name == "ccz":
+            ket.ctrl([q[qubits[0]], q[qubits[1]]], ket.Z)(q[qubits[2]])
         else:
             raise ValueError(f"gate sem mapeamento pro Ket: {name}")
     d = ket.dump(q)

@@ -25,7 +25,7 @@ from typing import Callable, Sequence
 
 import numpy as np
 
-from .matrices import GATE_TABLE, apply_1q, apply_2q, gate_matrix
+from .matrices import GATE_TABLE, apply_1q, apply_2q, apply_3q, gate_matrix
 
 
 @dataclass(frozen=True)
@@ -144,10 +144,15 @@ def circuit_unitary(circ: Circuit) -> "np.ndarray":
     acc = np.eye(dim, dtype=complex)
     for g in circ.gates:
         m = gate_matrix(g.kind, g.params)
-        if len(g.qubits) == 1:
+        arity = len(g.qubits)
+        if arity == 1:
             step = apply_1q(circ.n_qubits, g.qubits[0], m)
-        else:
+        elif arity == 2:
             step = apply_2q(circ.n_qubits, g.qubits[0], g.qubits[1], m)
+        elif arity == 3:
+            step = apply_3q(circ.n_qubits, g.qubits[0], g.qubits[1], g.qubits[2], m)
+        else:
+            raise ValueError(f"gate '{g.kind}' has unsupported arity {arity}")
         acc = step @ acc
     return acc
 

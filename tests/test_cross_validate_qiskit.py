@@ -57,7 +57,8 @@ GATE_SET = ["h", "x", "y", "z", "s", "sdg", "t", "tdg", "sx", "sxdg",
             "rz", "ry", "rx", "p", "u", "r",
             "cx", "cz", "swap", "crz", "crx", "cry", "cp", "rzz", "rxx", "ryy",
             "iswap", "dcx", "ecr", "cy", "ch", "csx", "cu", "rzx",
-            "xx_plus_yy", "xx_minus_yy"]
+            "xx_plus_yy", "xx_minus_yy",
+            "ccx", "cswap", "ccz", "rccx"]
 
 _METHOD_1Q = {"h": "h", "x": "x", "y": "y", "z": "z", "s": "s", "sdg": "sdg",
               "t": "t", "tdg": "tdg", "sx": "sx", "sxdg": "sxdg"}
@@ -76,6 +77,10 @@ _GATE_2Q_CLASS = {"xx_plus_yy": XXPlusYYGate, "xx_minus_yy": XXMinusYYGate}
 # comparison against Operator() (see isolate_bug7.py in session scratch).
 _METHOD_2Q_FIXED_SWAPPED = {"dcx": "dcx", "ecr": "ecr"}
 _METHOD_2Q_PARAM_SWAPPED = {"rzx": "rzx"}
+# verified by direct 8x8 matrix comparison (session scratch): all 4 match
+# with plain index reversal, no argument-order swap needed (unlike the
+# asymmetric 2Q gates above).
+_METHOD_3Q_FIXED = {"ccx": "ccx", "cswap": "cswap", "ccz": "ccz", "rccx": "rccx"}
 
 
 def _circuit_to_qiskit(circ: Circuit) -> "QuantumCircuit":
@@ -111,6 +116,8 @@ def _circuit_to_qiskit(circ: Circuit) -> "QuantumCircuit":
             # Reverse index AND swap arg order (verified below by direct
             # matrix comparison against Qiskit's Operator()).
             qc.append(_GATE_2Q_CLASS[name](*params), [rev(qubits[1]), rev(qubits[0])])
+        elif name in _METHOD_3Q_FIXED:
+            getattr(qc, _METHOD_3Q_FIXED[name])(rev(qubits[0]), rev(qubits[1]), rev(qubits[2]))
         else:
             raise ValueError(f"gate sem mapeamento pro Qiskit: {name}")
     return qc

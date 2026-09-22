@@ -117,6 +117,28 @@ this extra swap -- only the non-controlled, asymmetric-under-exchange
 gates did. Fixed in the test adapter only (`tests/test_cross_validate_qiskit.py`),
 `matrices.py` itself was correct throughout.
 
+**Third occurrence, negative result recorded on purpose (2026-09-22):**
+extending the vocabulary again to the 3-qubit gates `ccx`/`cswap`/`ccz`/`rccx`
+(the ones AutoQ EngineBR actually emits, as opposed to the 2Q gates above
+which it only ever consumes as input) raised the same question one qubit
+wider: does plain index reversal still suffice, or does *this* batch also
+need the argument-order swap? Checked the same way, before writing the
+matrices at all -- derived each gate's matrix from Qiskit's real
+`.to_matrix()` output converted via 3-bit index bit-reversal (not the docs,
+not memory), cross-checked `ccx`/`cswap`/`ccz` against an independent
+first-principles derivation (exact match, diff 0.0), then verified the
+resulting `matrices.py` entries against `Operator()` with plain index
+reversal and NO argument swap -- all 4 matched exactly (max diff 0.0),
+confirmed by ALSO trying the swapped-argument order and observing it fails
+(diff 1.0) for the 3 asymmetric ones (`ccx`, `cswap`, `rccx`; `ccz` is
+symmetric either way, matching in both orderings since it's diagonal).
+This is a genuine negative result worth keeping precisely because the
+prior 2Q investigation could have suggested "asymmetric gates always need
+the swap" as a rule -- they don't; whether index-reversal alone suffices
+depends on the specific gate's structure, not on symmetry-under-exchange
+alone, so each new gate batch still needs its own check, not a shortcut
+from the last one's conclusion.
+
 ## Method 4: writing a minimal native-language binding to reach code the wrapper doesn't exercise
 
 The most important methodological lesson from this session: **a negative

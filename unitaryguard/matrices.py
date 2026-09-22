@@ -206,6 +206,37 @@ _2Q_MULTI = {
     "xx_minus_yy": (_xx_minus_yy, 2),
 }
 
+# ---------------------------------------------------------------------
+# 3-qubit gates -- basis |abc> = |000>..|111>, a=qubits[0] (most
+# significant local index), c=qubits[2] (least significant). Every entry
+# below was derived from Qiskit's own real `.to_matrix()` output (not the
+# docs, not memory), converted from Qiskit's little-endian LOCAL gate
+# convention (first qarg = LSB) to this module's convention (first qarg =
+# MSB) via bit-reversal of the 3-bit index, then cross-checked against an
+# independent first-principles derivation for ccx/cswap/ccz (all matched
+# exactly, max diff 0.0) before trusting the same conversion for rccx.
+# ---------------------------------------------------------------------
+
+_CCX = np.eye(8, dtype=complex)
+_CCX[[6, 7]] = _CCX[[7, 6]]  # Toffoli: flip target (LSB) when both controls=1
+
+_CSWAP = np.eye(8, dtype=complex)
+_CSWAP[[5, 6]] = _CSWAP[[6, 5]]  # Fredkin: swap the two targets when control (MSB)=1
+
+_CCZ = np.diag([1, 1, 1, 1, 1, 1, 1, -1]).astype(complex)
+
+_RCCX = np.eye(8, dtype=complex)
+_RCCX[5, 5] = -1
+_RCCX[6, 6] = 0
+_RCCX[7, 7] = 0
+_RCCX[6, 7] = -1j
+_RCCX[7, 6] = 1j
+
+_3Q_FIXED = {
+    "ccx": lambda: _CCX, "cswap": lambda: _CSWAP,
+    "ccz": lambda: _CCZ, "rccx": lambda: _RCCX,
+}
+
 # (arity, n_params) -- the single source of truth for what a gate name
 # means structurally. Both core.py's random sampler and exhaustive.py's
 # enumerator read this.
@@ -216,6 +247,7 @@ GATE_TABLE = {
     **{k: (2, 0) for k in _2Q_FIXED},
     **{k: (2, 1) for k in _2Q_PARAM},
     **{k: (2, n) for k, (_fn, n) in _2Q_MULTI.items()},
+    **{k: (3, 0) for k in _3Q_FIXED},
 }
 
 
@@ -232,6 +264,8 @@ def gate_matrix(kind: str, params: tuple[float, ...]):
         return _2Q_PARAM[kind](*params)
     if kind in _2Q_MULTI:
         return _2Q_MULTI[kind][0](*params)
+    if kind in _3Q_FIXED:
+        return _3Q_FIXED[kind]()
     raise ValueError(f"unknown gate '{kind}' -- known gates: {sorted(GATE_TABLE)}")
 
 
@@ -274,5 +308,34 @@ def apply_2q(n_qubits: int, qa: int, qb: int, m4) -> "np.ndarray":
             j = i
             j = (j & ~(1 << bit_a)) | (b_a_p << bit_a)
             j = (j & ~(1 << bit_b)) | (b_b_p << bit_b)
+            out[j, i] += coeff
+    return out
+
+
+def apply_3q(n_qubits: int, qa: int, qb: int, qc: int, m8) -> "np.ndarray":
+    """Full 2^n x 2^n matrix for a 3-qubit gate acting on (qa, qb, qc) --
+    qa is the most-significant local index, qc the least (matches this
+    module's fixed kron convention), by direct action on basis indices.
+    Works for any qa/qb/qc, adjacent or not."""
+    dim = 1 << n_qubits
+    out = np.zeros((dim, dim), dtype=complex)
+    bit_a = n_qubits - 1 - qa
+    bit_b = n_qubits - 1 - qb
+    bit_c = n_qubits - 1 - qc
+    for i in range(dim):
+        b_a = (i >> bit_a) & 1
+        b_b = (i >> bit_b) & 1
+        b_c = (i >> bit_c) & 1
+        local = 4 * b_a + 2 * b_b + b_c
+        for lp in range(8):
+            coeff = m8[lp, local]
+            if coeff == 0:
+                continue
+            b_a_p, rem = divmod(lp, 4)
+            b_b_p, b_c_p = divmod(rem, 2)
+            j = i
+            j = (j & ~(1 << bit_a)) | (b_a_p << bit_a)
+            j = (j & ~(1 << bit_b)) | (b_b_p << bit_b)
+            j = (j & ~(1 << bit_c)) | (b_c_p << bit_c)
             out[j, i] += coeff
     return out
