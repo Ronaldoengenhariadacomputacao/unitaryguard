@@ -152,9 +152,10 @@ kind of degradation documented above for a small search.
 ## Status
 
 Published: [PyPI](https://pypi.org/project/unitaryguard/0.2.0/) (`pip install
-unitaryguard`), [GitHub releases](https://github.com/Ronaldoengenhariadacomputacao/unitaryguard/releases)
-(v0.1.0, v0.2.0), and [Zenodo](https://doi.org/10.5281/zenodo.22908390)
-(archival DOI, see "Citation" below). v0.2 (2026-09-21): dropped the Qiskit
+unitaryguard`) and [Zenodo](https://doi.org/10.5281/zenodo.22908390)
+(archival DOI, see "Citation" below) — tags `v0.1.0`/`v0.2.0` exist on
+GitHub, but no formal GitHub Release has been published yet. v0.2
+(2026-09-21): dropped the Qiskit
 dependency entirely, see DESIGN.md.
 
 ## Citation
