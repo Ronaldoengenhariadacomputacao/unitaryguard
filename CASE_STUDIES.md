@@ -48,6 +48,31 @@ guarded path `autoq_qec` actually uses in production): **0 failures**,
 confirming the existing guard genuinely neutralizes the bug, not just
 coincidentally.
 
+**Reinforcement, third independent oracle (2026-09-22):** re-ran the exact
+same 300 circuits, but instead of using `unitaryguard`'s own equivalence
+check (`matrices.py`), computed each circuit's statevector directly
+through Ket's real simulator (`ket.dump()`) for both the original and the
+`_transpile_clifford_t` output, comparing those two statevectors instead
+-- removing `unitaryguard`'s own gate-matrix math from the loop entirely
+for this specific check. Result matched exactly: **77/300 failed
+unguarded, 0/300 failed guarded** -- same numbers as the `matrices.py`-based
+run, now confirmed without any code from this project's own oracle in the
+comparison path.
+
+**Near-miss worth recording:** the first attempt at this used `tol=1e-6`
+(copied from the Qiskit/Ket oracle-validation tests) and got 168/300 and
+177/300 "failures" -- including on the GUARDED path, which should be
+impossible if the guard works. Before concluding the guard was broken,
+inspected the worst cases directly: `Operator()`-based fidelity was a
+clean 1.000000 while the Ket-based fidelity for the SAME pair of circuits
+was 0.999994 -- the exact float32 noise floor already catalogued in Method
+5 below, just encountered again in a different script that hadn't been
+updated with that calibration. Re-running with `tol=1e-4` (the value
+Method 5 already established as correct for Ket) immediately gave the
+correct 77/0 split. Kept as a explicit reminder: a tolerance calibrated
+for one oracle/precision combination does not automatically transfer to a
+new script reusing that oracle -- recheck it, don't just copy the number.
+
 ## Method 2: exhaustive (deterministic) search
 
 `unitaryguard.check_transform_exhaustive` -- tests every discrete circuit
