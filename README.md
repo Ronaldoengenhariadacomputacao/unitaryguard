@@ -151,5 +151,24 @@ kind of degradation documented above for a small search.
 
 ## Status
 
-Early prototype, private (not yet published to PyPI). v0.2 (2026-09-21):
-dropped Qiskit dependency entirely, see DESIGN.md.
+Published: [PyPI](https://pypi.org/project/unitaryguard/0.2.0/) (`pip install
+unitaryguard`), [GitHub releases](https://github.com/Ronaldoengenhariadacomputacao/unitaryguard/releases)
+(v0.1.0, v0.2.0), and [Zenodo](https://doi.org/10.5281/zenodo.22908390)
+(archival DOI, see "Citation" below). v0.2 (2026-09-21): dropped the Qiskit
+dependency entirely, see DESIGN.md.
+
+## Citation
+
+If you use UnitaryGuard, please cite the archival record on Zenodo (the
+concept DOI below always resolves to the latest version):
+
+```
+Rodrigues, Ronaldo. UnitaryGuard.
+Zenodo. https://doi.org/10.5281/zenodo.22908390
+```
+
+| Version | DOI |
+|---|---|
+| Concept (always latest) | [10.5281/zenodo.22908390](https://doi.org/10.5281/zenodo.22908390) |
+| v0.1.0 | [10.5281/zenodo.22908391](https://doi.org/10.5281/zenodo.22908391) |
+| v0.2.0 | [10.5281/zenodo.22908392](https://doi.org/10.5281/zenodo.22908392) |
