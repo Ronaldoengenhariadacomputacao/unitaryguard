@@ -133,12 +133,18 @@ kind of degradation documented above for a small search.
   see `DESIGN.md`.
 - Unitary-only transforms — no mid-circuit measurement / classical control
   yet.
-- Gate vocabulary: `h,x,y,z,s,sdg,t,tdg,sx` (0-param), `rz,ry,rx,p` (1-param),
-  `u` (3-param), `cx,cz,swap` (0-param, 2-qubit), `crz,crx,cry,cp,rzz,rxx,ryy`
-  (1-param, 2-qubit) — see `unitaryguard/matrices.py::GATE_TABLE`. No
-  multi-parameter 2-qubit gates yet (`cu`, `xx_plus_yy`, ...) and no generic
-  arbitrary-unitary sampling (`UnitaryGate`-equivalent) — extending either
-  is a matter of adding matrix functions + table entries to `matrices.py`.
+- Gate vocabulary: `h,x,y,z,s,sdg,t,tdg,sx,sxdg` (0-param, 1-qubit),
+  `rz,ry,rx,p` (1-param, 1-qubit), `u` (3-param), `r` (2-param),
+  `cx,cz,swap,iswap,dcx,ecr,cy,ch,csx` (0-param, 2-qubit),
+  `crz,crx,cry,cp,rzz,rxx,ryy,rzx` (1-param, 2-qubit),
+  `cu,xx_plus_yy,xx_minus_yy` (multi-param, 2-qubit),
+  `ccx,cswap,ccz,rccx` (0-param, 3-qubit) — see
+  `unitaryguard/matrices.py::GATE_TABLE`. No generic arbitrary-unitary
+  sampling (`UnitaryGate`-equivalent) yet — extending vocabulary further is
+  a matter of adding matrix functions + table entries to `matrices.py`;
+  every entry added so far was cross-validated against two independent
+  oracles (Ket and Qiskit's `Operator()`) before being trusted — see
+  `CASE_STUDIES.md`.
 - No longer wraps real Qiskit `PassManager`/pass objects directly (that
   capability was removed in v0.2 along with the Qiskit dependency — see
   "Why v0.2 has no Qiskit dependency" above).

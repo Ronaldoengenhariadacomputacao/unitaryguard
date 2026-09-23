@@ -22,20 +22,22 @@ Worth linking this case study from the PR if/when following up on review.
 
 ## Extend `matrices.py` gate vocabulary (v0.2 follow-up)
 
-**Status:** not started. Low effort per gate, mechanical.
+**Status:** DONE for named gates (2026-09-21/22, commits `dbb83e4`,
+`3410875`, `82ca96f`). Only the generic arbitrary-unitary case remains.
 
 v0.2 (2026-09-21, see DESIGN.md) replaced the Qiskit-based `Operator()`
-equivalence check with a native gate-matrix table. Current vocabulary
-(`unitaryguard/matrices.py::GATE_TABLE`) covers 0/1-parameter 1-qubit gates,
-the 3-parameter `u`, and 0/1-parameter 2-qubit gates. Not yet covered:
+equivalence check with a native gate-matrix table. `matrices.py` now
+covers: 0/1-parameter 1-qubit gates (incl. `sxdg`), `u`/`r` (multi-param
+1-qubit), 0/1-parameter 2-qubit gates (incl. `iswap`, `dcx`, `ecr`, `cy`,
+`ch`, `csx`, `rzx`), multi-parameter 2-qubit gates (`cu`, `xx_plus_yy`,
+`xx_minus_yy`), and 3-qubit gates (`ccx`, `cswap`, `ccz`, `rccx`). Every
+entry was cross-validated against two independent oracles (Ket, Qiskit's
+`Operator()`) before being trusted — see `CASE_STUDIES.md` (Method 3 and
+its "second"/"third occurrence" notes) for the two qubit-ordering bugs
+that surfaced and were fixed during this work (in the *test adapters*,
+never in `matrices.py` itself).
 
-- **Multi-parameter 2-qubit gates** (`cu` — 4 params, `xx_plus_yy`/
-  `xx_minus_yy` — 2 params each). `_random_gate`/`enumerate_circuits`
-  already generalize to N params via `GATE_TABLE[name] = (arity, n_params)`
-  — just needs the matrix function + table entry, no core-logic change.
-- **3+ qubit gates** (`ccx`, `cswap`, `ccz`). The sampler already handles
-  arbitrary arity generically (`rng.sample(range(n_qubits), arity)`) — same
-  as above, just matrix + table entry (arity=3, n_params=0).
+Still not covered:
 - **Generic arbitrary-unitary gates** (equivalent to Qiskit's
   `UnitaryGate`). Genuinely new code path needed — these aren't a named
   method with a fixed matrix, so `_random_gate` would need a separate

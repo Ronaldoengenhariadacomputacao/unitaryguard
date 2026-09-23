@@ -277,9 +277,9 @@ not just whether it crossed an arbitrarily-chosen threshold.
 
 | Method | Target | Result |
 |---|---|---|
-| 1. Random sampling | `autoq_qec._transpile_clifford_t(validate=False)` | 77/300 failed, guard confirmed working |
+| 1. Random sampling | `autoq_qec._transpile_clifford_t(validate=False)` | 77/300 failed, guard confirmed working -- reproduced via 4 independent checks: `matrices.py`, Qiskit `Operator()`, Ket (generic wrapper), Ket (native, no wrapper); also reproduced on multi-qubit circuits with `cx` (10-25% failure rate, n=2/3 qubits) |
 | 2. Exhaustive search | rsgridsynth-shaped bug (toy port) | Found deterministically at length 4 |
-| 3a. Cross-validate oracle | Ket (independent simulator) | 0/1520 divergences (matrices.py confirmed) |
-| 3b. Cross-validate oracle | Qiskit `Operator()` | Found a real integration bug (endianness) in the TEST adapter itself |
+| 3a. Cross-validate oracle | Ket (independent simulator) | 0/1520 divergences on the 1/2-qubit vocabulary (matrices.py confirmed); extended later to `cy`/`ch`/`csx`/`ccx`/`cswap`/`ccz` with the same result (0 divergences) |
+| 3b. Cross-validate oracle | Qiskit `Operator()` | Found two real integration bugs (endianness; then a second, narrower qubit-ORDER-swap rule for asymmetric 2Q gates) in the TEST adapter itself, both times -- never in `matrices.py`. A later negative result (3-qubit gates) showed the second rule does NOT generalize: `ccx`/`cswap`/`rccx` needed plain index reversal, not the argument swap |
 | 4. Native-language binding | rsgridsynth's real `NormalForm` (PR #49) | 13/300 failed, confirms PR #49 automatically |
 | 5. Self cross-validation (different backends) | Ket `dense`/`sparse`/`dense gpu` | 0/1800 real divergences (initial "failures" were float32 noise, not a bug -- see writeup) |
